@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import glob
 import xml.etree.ElementTree as ET
 
 ''' Example
@@ -13,6 +14,7 @@ import xml.etree.ElementTree as ET
 </document>
 '''
 
+## TODO: tokenization and remove punctuations which are not part of entity mentions
 class Word:
     def __init__(self, index, text, etype):
         self.index = index
@@ -94,16 +96,48 @@ def generate_annotated_sentences(root):
             tag_word(words, attributes)
         yield words
 
+def preprocess_ddi(data_path='../data/DrugDDI/DrugDDI_Unified/', output_path='../data/DrugDDI/' + 'ddi.txt'):
+    """
+    Preprocess ddi data and write results to files
+    """
+    
+    file_pattern = data_path + '*.xml'
+    with open(output_path, 'w') as output_file:
+        for f in glob.glob(file_pattern):
+            print('Processing: {}...'.format(f))
+            # import xml data into ElementTree
+            tree = ET.parse(f)
+            root = tree.getroot()
+            for words in generate_annotated_sentences(root):
+                text = ' '.join([word.text for word in words])
+                annotation = ' '.join([word.etype for word in words])
+                output_file.write(text + '\n')
+                output_file.write(annotation + '\n')
+    print('Done')
+
+def load_data(data_path):
+    """
+    Make data set: [(sentence.split(' '), annotation.split(' '))]
+    """
+    def tokenize(sent):
+        return sent.rstrip().split(' ')
+    dataset = []
+    sentences = []
+    annotations = []
+    with open(data_path, 'r') as f:
+        for i, l in enumerate(f):
+            if i % 2 == 0:
+                sentences.append(tokenize(l))
+            else:
+                annotations.append(tokenize(l))
+    dataset = list(zip(sentences, annotations))
+    return dataset
+            
     
 if __name__ == '__main__':
-    data_path = '../data/ddi_tiny/Adalimumab_ddi.xml'
-    # import xml data into ElementTree
-    tree = ET.parse(data_path)
-    root = tree.getroot()
-        
-    for words in generate_annotated_sentences(root):
-        print('\n')
-        print(words)
+    preprocess_ddi()
+    data_path = '../data/DrugDDI/ddi.txt'
+    dataset = load_data(data_path)
     
     
     

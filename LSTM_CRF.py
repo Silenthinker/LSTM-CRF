@@ -143,7 +143,7 @@ def prepare_sequence(seq, to_ix):
     Args:
         to_ix: {str: int}
     """
-    idxs = [to_ix[w] for w in seq]
+    idxs = [to_ix[w] for w in seq] ## TODO: add unk
     tensor = torch.LongTensor(idxs)
     return autograd.Variable(tensor)
 
@@ -168,6 +168,8 @@ class BiLSTM_CRF(nn.Module):
         self.vocab_size = vocab_size
         self.tag_to_ix = tag_to_ix
         self.tagset_size = len(tag_to_ix)
+        self.START_TAG = "<START>"
+        self.STOP_TAG = "<STOP>"
 
         self.word_embeds = nn.Embedding(vocab_size, embedding_dim)
         self.lstm = nn.LSTM(embedding_dim, hidden_dim // 2,
@@ -183,8 +185,8 @@ class BiLSTM_CRF(nn.Module):
 
         # These two statements enforce the constraint that we never transfer
         # to the start tag and we never transfer from the stop tag 
-        self.transitions.data[tag_to_ix[START_TAG], :] = -10000
-        self.transitions.data[:, tag_to_ix[STOP_TAG]] = -10000
+        self.transitions.data[tag_to_ix[self.START_TAG], :] = -10000
+        self.transitions.data[:, tag_to_ix[self.STOP_TAG]] = -10000
 
         self.hidden = self.init_hidden()
 
@@ -196,7 +198,7 @@ class BiLSTM_CRF(nn.Module):
         # Do the forward algorithm to compute the partition function
         init_alphas = torch.Tensor(1, self.tagset_size).fill_(-10000.)
         # START_TAG has all of the score.
-        init_alphas[0][self.tag_to_ix[START_TAG]] = 0. 
+        init_alphas[0][self.tag_to_ix[self.START_TAG]] = 0. 
 
         # Wrap in a variable so that we will get automatic backprop
         forward_var = autograd.Variable(init_alphas) # ???
@@ -219,7 +221,7 @@ class BiLSTM_CRF(nn.Module):
                 # scores.
                 alphas_t.append(log_sum_exp(next_tag_var))
             forward_var = torch.cat(alphas_t).view(1, -1)
-        terminal_var = forward_var + self.transitions[self.tag_to_ix[STOP_TAG]]
+        terminal_var = forward_var + self.transitions[self.tag_to_ix[self.STOP_TAG]]
         alpha = log_sum_exp(terminal_var)
         return alpha
 
@@ -234,11 +236,11 @@ class BiLSTM_CRF(nn.Module):
     def _score_sentence(self, feats, tags):
         # Gives the score of a provided tag sequence
         score = autograd.Variable(torch.Tensor([0]))
-        tags = torch.cat([torch.LongTensor([self.tag_to_ix[START_TAG]]), tags])
+        tags = torch.cat([torch.LongTensor([self.tag_to_ix[self.START_TAG]]), tags])
         for i, feat in enumerate(feats):
             score = score + \
                 self.transitions[tags[i + 1], tags[i]] + feat[tags[i + 1]]
-        score = score + self.transitions[self.tag_to_ix[STOP_TAG], tags[-1]]
+        score = score + self.transitions[self.tag_to_ix[self.STOP_TAG], tags[-1]]
         return score
 
     def _viterbi_decode(self, feats):
@@ -246,7 +248,7 @@ class BiLSTM_CRF(nn.Module):
 
         # Initialize the viterbi variables in log space
         init_vvars = torch.Tensor(1, self.tagset_size).fill_(-10000.)
-        init_vvars[0][self.tag_to_ix[START_TAG]] = 0
+        init_vvars[0][self.tag_to_ix[self.START_TAG]] = 0
 
         # forward_var at step i holds the viterbi variables for step i-1
         forward_var = autograd.Variable(init_vvars)
@@ -270,7 +272,7 @@ class BiLSTM_CRF(nn.Module):
             backpointers.append(bptrs_t)
 
         # Transition to STOP_TAG
-        terminal_var = forward_var + self.transitions[self.tag_to_ix[STOP_TAG]]
+        terminal_var = forward_var + self.transitions[self.tag_to_ix[self.STOP_TAG]]
         best_tag_id = argmax(terminal_var)
         path_score = terminal_var[0][best_tag_id]
 
@@ -281,7 +283,7 @@ class BiLSTM_CRF(nn.Module):
             best_path.append(best_tag_id)
         # Pop off the start tag (we dont want to return that to the caller)
         start = best_path.pop()
-        assert start == self.tag_to_ix[START_TAG]  # Sanity check
+        assert start == self.tag_to_ix[self.START_TAG]  # Sanity check
         best_path.reverse()
         return path_score, best_path
 
@@ -302,62 +304,63 @@ class BiLSTM_CRF(nn.Module):
 #####################################################################
 # Run training
 
-
-START_TAG = "<START>"
-STOP_TAG = "<STOP>"
-EMBEDDING_DIM = 5
-HIDDEN_DIM = 4
-
-# Make up some training data
-training_data = [(
-    "the wall street journal reported today that apple corporation made money".split(),
-    "B I I I O O O B I O O".split()
-), (
-    "georgia tech is a university in georgia".split(),
-    "B I O O O O B".split()
-)]
-
-# create dictionary
-word_to_ix = {}
-for sentence, tags in training_data:
-    for word in sentence:
-        if word not in word_to_ix:
-            word_to_ix[word] = len(word_to_ix)
-
-tag_to_ix = {"B": 0, "I": 1, "O": 2, START_TAG: 3, STOP_TAG: 4}
-
-model = BiLSTM_CRF(len(word_to_ix), tag_to_ix, EMBEDDING_DIM, HIDDEN_DIM)
-optimizer = optim.SGD(model.parameters(), lr=0.01, weight_decay=1e-4)
-
-# Check predictions before training
-precheck_sent = prepare_sequence(training_data[0][0], word_to_ix)
-precheck_tags = torch.LongTensor([tag_to_ix[t] for t in training_data[0][1]])
-print(model(precheck_sent))
-
-# Make sure prepare_sequence from earlier in the LSTM section is loaded
-for epoch in range(
-        300):  # again, normally you would NOT do 300 epochs, it is toy data
+if __name__ == '__main__':
+    
+    START_TAG = "<START>"
+    STOP_TAG = "<STOP>"
+    EMBEDDING_DIM = 5
+    HIDDEN_DIM = 4
+    
+    # Make up some training data
+    training_data = [(
+        "the wall street journal reported today that apple corporation made money".split(),
+        "B I I I O O O B I O O".split()
+    ), (
+        "georgia tech is a university in georgia".split(),
+        "B I O O O O B".split()
+    )]
+    
+    # create dictionary
+    word_to_ix = {}
     for sentence, tags in training_data:
-        # Step 1. Remember that Pytorch accumulates gradients.
-        # We need to clear them out before each instance
-        model.zero_grad()
-
-        # Step 2. Get our inputs ready for the network, that is,
-        # turn them into Variables of word indices.
-        sentence_in = prepare_sequence(sentence, word_to_ix)
-        targets = torch.LongTensor([tag_to_ix[t] for t in tags])
-
-        # Step 3. Run our forward pass.
-        neg_log_likelihood = model.neg_log_likelihood(sentence_in, targets)
-
-        # Step 4. Compute the loss, gradients, and update the parameters by
-        # calling optimizer.step()
-        neg_log_likelihood.backward()
-        optimizer.step()
-
-# Check predictions after training
-precheck_sent = prepare_sequence(training_data[0][0], word_to_ix)
-print(model(precheck_sent))
+        for word in sentence:
+            if word not in word_to_ix:
+                word_to_ix[word] = len(word_to_ix)
+    
+    tag_to_ix = {"B": 0, "I": 1, "O": 2, START_TAG: 3, STOP_TAG: 4}
+    
+    model = BiLSTM_CRF(len(word_to_ix), tag_to_ix, EMBEDDING_DIM, HIDDEN_DIM)
+    optimizer = optim.SGD(model.parameters(), lr=0.01, weight_decay=1e-4)
+    
+    # Check predictions before training
+    precheck_sent = prepare_sequence(training_data[0][0], word_to_ix)
+    precheck_tags = torch.LongTensor([tag_to_ix[t] for t in training_data[0][1]])
+    print(model(precheck_sent))
+    
+    # Make sure prepare_sequence from earlier in the LSTM section is loaded
+    for epoch in range(
+            300):  # again, normally you would NOT do 300 epochs, it is toy data
+        for sentence, tags in training_data:
+            # Step 1. Remember that Pytorch accumulates gradients.
+            # We need to clear them out before each instance
+            model.zero_grad()
+    
+            # Step 2. Get our inputs ready for the network, that is,
+            # turn them into Variables of word indices.
+            sentence_in = prepare_sequence(sentence, word_to_ix)
+            targets = torch.LongTensor([tag_to_ix[t] for t in tags])
+    
+            # Step 3. Run our forward pass.
+            neg_log_likelihood = model.neg_log_likelihood(sentence_in, targets)
+    
+            # Step 4. Compute the loss, gradients, and update the parameters by
+            # calling optimizer.step()
+            neg_log_likelihood.backward()
+            optimizer.step()
+    
+    # Check predictions after training
+    precheck_sent = prepare_sequence(training_data[0][0], word_to_ix)
+    print(model(precheck_sent))
 # We got it!
 
 
