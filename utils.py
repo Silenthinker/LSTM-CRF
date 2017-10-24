@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
+import re
 import glob
+import random
 import xml.etree.ElementTree as ET
 
 ''' Example
@@ -14,6 +17,7 @@ import xml.etree.ElementTree as ET
 </document>
 '''
 
+RANDOM_STATE = 5
 ## TODO: tokenization and remove punctuations which are not part of entity mentions
 class Word:
     def __init__(self, index, text, etype):
@@ -32,10 +36,12 @@ def parse_charoffset(charoffset):
     Parse charoffset to a tuple containing start and end indices.
     Example:
         charoffset = '3-7'
+        in some cases, multiple ranges are present and separated by ';'
         print(parse_charoffset(charoffset))
         
         [3, 7]
     """
+    
     return [int(s) for s in charoffset.split('-')]
     
 def parse_sentence(sent):
@@ -67,79 +73,104 @@ def tag_word(words, entity):
         entity: dict has keys charOffset, type, text
     Tag Word with entity type in-place
     Example:
-        words = [(0, 'it', O), (3, 'is', O), (6, 'it', O)]
+        words = [(0, 'it(', O), (4, 'is', O), (7, 'it', O)]
         entity = {'charOffset': [0, 2], 'type': 'eng'} # [inclusive, exclusive]
         print(tag_word(words, entity))
         
-        [(0, 'it', 'B-ENG'), (3, 'is', 'O'), (6, 'it', 'O')]
+        [(0, 'it', 'B-ENG'), (3, (, 'O'), (4, 'is', 'O'), (7, 'it', 'O')]
     """
     beg, end = entity['charOffset']
     count = 0
-    for word in words:
-        if word.index >= beg and word.index < end:
+    origword = None
+    orig_i = None
+    for i, word in enumerate(words):
+        if word.index >= beg and word.index < end: # coarse tagging
+            if word.index + len(word.text) - 1 >= end:
+                origword = word
+                orig_i = i
             count += 1
             if count > 1:
                 word.etype = 'I-' + entity['type'].upper()
             else:
                 word.etype = 'B-' + entity['type'].upper()
+    # fine tagging
+    # if end index of word is larger than end index of charOffset, such as the case of example
+    # split the word into two words, and tag the latter O
+    if origword is None:
+        return
+    origtext = origword.text 
+    origword.text = origtext[:end - origword.index] # update text
+    nextindex = origword.index + len(origword.text)
+    nextword = Word(nextindex, origtext[len(origword.text)], 'O')
+    words.insert(orig_i + 1, nextword)
+    
             
 def generate_annotated_sentences(root):
     """
     Args:
         root: root Element of XML
     """
+    p = re.compile(r'\d+-\d+$')
     for sent in root.findall('sentence'):
         words = parse_sentence(sent.get('text'))
         for entity in sent.findall('entity'):
             attributes = entity.attrib
-            attributes['charOffset'] = parse_charoffset(attributes['charOffset'])
+            charoffset = attributes['charOffset']
+            if p.match(charoffset):
+                attributes['charOffset'] = parse_charoffset(charoffset)
+            else:
+                print(charoffset)
+                continue
             tag_word(words, attributes)
         yield words
 
-def preprocess_ddi(data_path='../data/DrugDDI/DrugDDI_Unified/', output_path='../data/DrugDDI/' + 'ddi.txt'):
+def preprocess_ddi(data_path='../data/DrugDDI/DrugDDI_Unified/'):
     """
     Preprocess ddi data and write results to files
     """
-    
-    file_pattern = data_path + '*.xml'
-    with open(output_path, 'w') as output_file:
-        for f in glob.glob(file_pattern):
-            print('Processing: {}...'.format(f))
-            # import xml data into ElementTree
-            tree = ET.parse(f)
-            root = tree.getroot()
-            for words in generate_annotated_sentences(root):
-                text = ' '.join([word.text for word in words])
-                annotation = ' '.join([word.etype for word in words])
-                output_file.write(text + '\n')
-                output_file.write(annotation + '\n')
+    res = []
+    file_pattern = os.path.join(data_path, '*.xml')
+    for f in glob.glob(file_pattern):
+        print('Processing: {}...'.format(f))
+        # import xml data into ElementTree
+        tree = ET.parse(f)
+        root = tree.getroot()
+        for words in generate_annotated_sentences(root):
+            res.append(words)
     print('Done')
+    return res
 
-def load_data(data_path):
-    """
-    Make data set: [(sentence.split(' '), annotation.split(' '))]
-    """
-    def tokenize(sent):
-        return sent.rstrip().split(' ')
-    dataset = []
-    sentences = []
-    annotations = []
-    with open(data_path, 'r') as f:
-        for i, l in enumerate(f):
-            if i % 2 == 0:
-                sentences.append(tokenize(l))
-            else:
-                annotations.append(tokenize(l))
-    dataset = list(zip(sentences, annotations))
-    return dataset
+def save_data(pre_data, output_path='../data/DrugDDI/ddi.txt'):
+    with open(output_path, 'w') as output_file:
+        output_file.write('-DOCSTART- -X- -X- O\n\n')
+        for words in pre_data:
+            for word in words:
+                output_file.write('{} {}\n'.format(word.text, word.etype))
+            output_file.write('\n')
             
     
 if __name__ == '__main__':
-    preprocess_ddi()
-    data_path = '../data/DrugDDI/ddi.txt'
-    dataset = load_data(data_path)
+    res = preprocess_ddi(data_path='../data/drugddi2013/xml')
+#    save_data(res, output_path='../data/drugddi2011/train.ddi')
     
+#    data_path = '../data/DrugDDI/ddi.txt'
     
+    # shuffle data
+    random.seed(RANDOM_STATE)
+    random.shuffle(res)
+    
+    train_ratio = 0.7
+    val_ratio = 0.1
+    test_ratio = 1 - train_ratio - val_ratio
+    ntrain = int(train_ratio*len(res))
+    nval = int(val_ratio*len(res))
+    ntest = len(res) - ntrain - nval
+    train_data = res[0:ntrain]
+    val_data = res[ntrain:ntrain + nval]
+    test_data = res[-ntest:]
+    save_data(train_data, output_path='../data/drugddi2013/train.ddi')
+    save_data(val_data, output_path='../data/drugddi2013/val.ddi')
+    save_data(test_data, output_path='../data/drugddi2013/test.ddi')
     
     
             
