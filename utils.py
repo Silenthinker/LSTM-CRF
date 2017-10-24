@@ -35,14 +35,13 @@ def parse_charoffset(charoffset):
     """
     Parse charoffset to a tuple containing start and end indices.
     Example:
-        charoffset = '3-7'
-        in some cases, multiple ranges are present and separated by ';'
-        print(parse_charoffset(charoffset))
+        charoffset = '3-7;8-9'
         
-        [3, 7]
+        [[3, 7], [8, 9]]
     """
-    
-    return [int(s) for s in charoffset.split('-')]
+    # try split by ';'
+    charoffsets = charoffset.split(';')
+    return [[int(x.strip()) for x in offset.split('-')] for offset in charoffsets]
     
 def parse_sentence(sent):
     """
@@ -110,18 +109,15 @@ def generate_annotated_sentences(root):
     Args:
         root: root Element of XML
     """
-    p = re.compile(r'\d+-\d+$')
     for sent in root.findall('sentence'):
         words = parse_sentence(sent.get('text'))
         for entity in sent.findall('entity'):
             attributes = entity.attrib
             charoffset = attributes['charOffset']
-            if p.match(charoffset):
-                attributes['charOffset'] = parse_charoffset(charoffset)
-            else:
-                print(charoffset)
-                continue
-            tag_word(words, attributes)
+            parsed_charoffsets = parse_charoffset(charoffset)
+            for parsed_charoffset in parsed_charoffsets:
+                attributes['charOffset'] = parsed_charoffset
+                tag_word(words, attributes)
         yield words
 
 def preprocess_ddi(data_path='../data/DrugDDI/DrugDDI_Unified/'):
