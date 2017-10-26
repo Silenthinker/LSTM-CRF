@@ -3,8 +3,10 @@
 import os
 import re
 import glob
-import random
 import xml.etree.ElementTree as ET
+
+import numpy as np
+from sklearn.utils import shuffle
 
 ''' Example
 <document id="DrugDDI.d89" origId="Aciclovir">
@@ -52,7 +54,7 @@ def parse_sentence(sent):
         
         [(0, 'it', 'O'), (3, 'is', 'O'), (6, 'it', 'O')]
     """
-    sent = sent.rstrip()
+    sent = sent.strip()
     res = []
     if len(sent) == 0:
         return res
@@ -61,7 +63,8 @@ def parse_sentence(sent):
         if j < len(sent) and sent[j] != ' ':
             j += 1
         else:
-            res.append(Word(i, sent[i:j], 'O'))
+            if j > i: # in case where two spaces are adjacent
+                res.append(Word(i, sent[i:j], 'O'))
             i = j + 1
             j = i
     return res
@@ -123,50 +126,157 @@ def generate_annotated_sentences(root):
 def preprocess_ddi(data_path='../data/DrugDDI/DrugDDI_Unified/'):
     """
     Preprocess ddi data and write results to files
+    Return:
+        res: list of tuple (docname, list of parsed sentences)
     """
     res = []
     file_pattern = os.path.join(data_path, '*.xml')
     for f in glob.glob(file_pattern):
+        res_perdoc = []
         print('Processing: {}...'.format(f))
         # import xml data into ElementTree
         tree = ET.parse(f)
         root = tree.getroot()
         for words in generate_annotated_sentences(root):
-            res.append(words)
+            res_perdoc.append(words)
+        res.append((f, res_perdoc))
     print('Done')
     return res
 
 def save_data(pre_data, output_path='../data/DrugDDI/ddi.txt'):
     with open(output_path, 'w') as output_file:
         output_file.write('-DOCSTART- -X- -X- O\n\n')
-        for words in pre_data:
-            for word in words:
-                output_file.write('{} {}\n'.format(word.text, word.etype))
-            output_file.write('\n')
+        for doc_tuple in pre_data:
+            doc, sents = doc_tuple
+            output_file.write('-DOCSTART- ' + doc + '\n')
+            for words in sents:
+                for word in words:
+                    output_file.write('{} {}\n'.format(word.text, word.etype))
+                output_file.write('\n') 
+
+def labelseq2conll(labelseq):
+    """
+    Change format of '<DRUG> sulindac </DRUG> ; ' to that of CoNll 2003
+    """
+    # the first line starts with -DOCSTART-
+    start_indicator = '-DOCSTART-'
+    sp = re.compile(r'<(\w*)>')
+    ep = re.compile(r'</(\w*)>')
+    res = []
+    sent = []
+    labels = []
+    for l in labelseq:
+        l = l.strip()
+        etype = None
+        if len(l) > 0 and start_indicator not in l:
+            terms = l.split()
+            for term in terms:
+                smatch = sp.match(term)
+                ematch = ep.match(term)
+                if smatch:
+                    etype = smatch.group(1)
+                    continue
+                if ematch:
+                    etype = None
+                    continue
+                sent.append(term)
+                if etype:
+                    labels.append(etype)
+                else:
+                    labels.append('O')
+        elif len(sent) > 0:
+            res.append((sent, labels))
+            sent = []
+            labels = []
+    if len(sent) > 0:
+        res.append((sent, labels))
+    return res
+    
+def iob2etype(lines):
+    """
+    Change iob format to etype: for example, I-DRUG to DRUG
+    """
+    start_indicator = '-DOCSTART-'
+    p = re.compile(r'[IB]-(\w+)')
+    res = []
+    sent = []
+    labels = []
+    for l in lines:
+        l = l.strip()
+        if len(l) > 0 and start_indicator not in l:
+            w, label = l.split()
+            sent.append(w)
+            match = p.match(label)
+            if match:
+                label = match.group(1)
+            labels.append(label)
+        elif len(sent) > 0:
+            res.append((sent, labels))
+            sent = []
+            labels = []
+    if len(sent) > 0:
+        res.append((sent, labels))
+    return res
             
+def find_error(gold, pred, fout):
+    """
+    Find error given gold reference and output to fout
+    """
+    with open(fout, 'w') as f:
+        f.write('sentence,gold,pred\n\n')
+        for ref, p in zip(gold, pred):
+            labels_ref = ref[1]
+            labels_pred = p[1]
+            terms = ref[0]
+            if labels_ref != labels_pred: # find error!
+                for i in range(len(terms)):
+                    if labels_ref[i] != labels_pred[i]:
+                        f.write('{},{},{}-----------------------\n'.format(terms[i], labels_ref[i], labels_pred[i]))
+                    else:
+                        f.write('{},{},{}\n'.format(terms[i], labels_ref[i], labels_pred[i]))
+                f.write('\n')
+                        
+def train_val_test_split(data, train_ratio=0.7, val_ratio=0.1, test_ratio=0.2, random_state=None):
+    """
+    Shuffle a list of objects and split into train, val, and test dataset
+    """
+    indices = shuffle(np.arange(0, len(data)), random_state=RANDOM_STATE)
     
-if __name__ == '__main__':
-    res = preprocess_ddi(data_path='../data/drugddi2013/xml')
-#    save_data(res, output_path='../data/drugddi2011/train.ddi')
     
-#    data_path = '../data/DrugDDI/ddi.txt'
+    # assert if ratios are compatible
+    assert train_ratio + val_ratio + test_ratio == 1, 'train, val, and test ratio must sum to 1'
     
-    # shuffle data
-    random.seed(RANDOM_STATE)
-    random.shuffle(res)
     
-    train_ratio = 0.7
-    val_ratio = 0.1
-    test_ratio = 1 - train_ratio - val_ratio
     ntrain = int(train_ratio*len(res))
     nval = int(val_ratio*len(res))
     ntest = len(res) - ntrain - nval
-    train_data = res[0:ntrain]
-    val_data = res[ntrain:ntrain + nval]
-    test_data = res[-ntest:]
-    save_data(train_data, output_path='../data/drugddi2013/train.ddi')
-    save_data(val_data, output_path='../data/drugddi2013/val.ddi')
-    save_data(test_data, output_path='../data/drugddi2013/test.ddi')
+    train_indices = indices[0:ntrain]
+    val_indices = indices[ntrain:ntrain+nval]
+    test_indices = indices[-ntest:]
+    
+    def indexlistbylist(l, indices):
+        return [l[indice] for indice in indices]
+    train_data = indexlistbylist(data, train_indices)
+    val_data = indexlistbylist(data, val_indices)
+    test_data = indexlistbylist(data, test_indices)
+    
+    return train_data, val_data, test_data
+    
+
+if __name__ == '__main__':
+    dataset = 'drugddi2011'
+    res = preprocess_ddi(data_path='../data/'+ dataset + '/xml')
+#    save_data(res, output_path='../data/' + dataset + '/train.ddi')
+    
+#    data_path = '../data/DrugDDI/ddi.txt'
+    
+    
+    # shuffle and split data
+    train_data, val_data, test_data = train_val_test_split(res, random_state=RANDOM_STATE)
+    save_data(train_data, output_path='../data/' + dataset + '/train.ddi')
+    save_data(val_data, output_path='../data/' + dataset + '/val.ddi')
+    save_data(test_data, output_path='../data/' + dataset + '/test.ddi')
+    
     
     
             

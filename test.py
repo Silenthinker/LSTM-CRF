@@ -16,13 +16,11 @@ def test_parse_charoffset():
     charoffset = '0-2;4-5'
     return utils.parse_charoffset(charoffset)
 
-def test_parse_sentence():
-    sent = 'it( is it'
-    charoffset = '0-2;4-5'
+def test_parse_sentence(sent, charoffset):
     charoffsets = utils.parse_charoffset(charoffset)
     words = utils.parse_sentence(sent)
     print(words)
-    entity = {'charOffset': [0, 2], 'type': 'eng'}
+    entity = {'charOffset': [29, 39], 'type': 'drug'}
     for charoffset in charoffsets:
         entity['charOffset'] = charoffset
         utils.tag_word(words, entity)
@@ -31,5 +29,18 @@ def test_parse_sentence():
 if __name__ == '__main__':
 #    test_parse_charoffset()
     
-    test_parse_sentence()
+    sent = "Antidepressants, tricyclic?Amphetamines may enhance the activity of tricyclic antidepressants or sympathomimetic agents;"
+    charoffset = '68-93'
+    test_parse_sentence(sent, charoffset)
+    
+    '''
+    filename = '../data/drugddi2011/pred.ddi'
+    with open(filename, 'r') as f:
+        pred = utils.labelseq2conll(f.readlines())
+    
+    filename = '../data/drugddi2011/test.ddi'
+    with open(filename, 'r') as f:
+        gold = utils.iob2etype(f.readlines())
+    utils.find_error(gold, pred, '../data/drugddi2011/error.txt')
+    '''
     
