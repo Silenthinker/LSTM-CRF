@@ -5,6 +5,9 @@ import re
 import glob
 import xml.etree.ElementTree as ET
 
+from collections import Counter
+from operator import itemgetter
+
 import numpy as np
 from sklearn.utils import shuffle
 
@@ -261,10 +264,9 @@ def train_val_test_split(data, train_ratio=0.7, val_ratio=0.1, test_ratio=0.2, r
     test_data = indexlistbylist(data, test_indices)
     
     return train_data, val_data, test_data
-    
 
 if __name__ == '__main__':
-    dataset = 'drugddi2011'
+    dataset = 'ddi_tiny'
     res = preprocess_ddi(data_path='../data/'+ dataset + '/xml')
 #    save_data(res, output_path='../data/' + dataset + '/train.ddi')
     

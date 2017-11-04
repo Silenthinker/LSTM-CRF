@@ -27,20 +27,8 @@ def test_parse_sentence(sent, charoffset):
         print(words)
     
 if __name__ == '__main__':
-#    test_parse_charoffset()
+    data_path = '../data/wikipedia_p_e_m.txt'
     
-    sent = "Antidepressants, tricyclic?Amphetamines may enhance the activity of tricyclic antidepressants or sympathomimetic agents;"
-    charoffset = '68-93'
-    test_parse_sentence(sent, charoffset)
-    
-    '''
-    filename = '../data/drugddi2011/pred.ddi'
-    with open(filename, 'r') as f:
-        pred = utils.labelseq2conll(f.readlines())
-    
-    filename = '../data/drugddi2011/test.ddi'
-    with open(filename, 'r') as f:
-        gold = utils.iob2etype(f.readlines())
-    utils.find_error(gold, pred, '../data/drugddi2011/error.txt')
-    '''
-    
+                
+                
+            
